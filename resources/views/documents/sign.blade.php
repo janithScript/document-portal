@@ -2,26 +2,78 @@
 @section('title','Sign Document')
 @push('styles')
 <style>
-  #pdfContainer { position:relative; display:inline-block; border:2px solid #6c3483; }
+  #pdfContainer {
+    position: relative;
+    display: inline-block;
+    border: 1px solid rgba(255, 255, 255, 0.75);
+    background: rgba(255, 255, 255, 0.7);
+    border-radius: 16px;
+    overflow: hidden;
+    box-shadow: 0 14px 32px rgba(15, 43, 78, 0.16);
+  }
+
   #pdfCanvas { display:block; }
-  #sigCanvas { position:absolute;top:0;left:0;cursor:crosshair; }
-  .toolbar { background:#f8f9fa;border:1px solid #dee2e6;border-radius:8px;padding:10px; }
-  #sigPad { border:2px dashed #6c3483;border-radius:8px;cursor:crosshair;background:#fff; }
-  .mode-btn.active { background:#6c3483!important;color:white!important; }
+
+  #sigCanvas {
+    position: absolute;
+    top: 0;
+    left: 0;
+    cursor: crosshair;
+  }
+
+  .toolbar {
+    background: rgba(255, 255, 255, 0.78);
+    border: 1px solid rgba(255, 255, 255, 0.68);
+    border-radius: 16px;
+    padding: 12px;
+    box-shadow: 0 10px 24px rgba(18, 47, 81, 0.12);
+  }
+
+  #sigPad {
+    border: 2px dashed rgba(21, 129, 145, 0.7);
+    border-radius: 12px;
+    cursor: crosshair;
+    background: rgba(255, 255, 255, 0.95);
+    width: 100%;
+    max-width: 280px;
+  }
+
+  .doc-title {
+    font-weight: 700;
+    margin-bottom: 0.9rem;
+  }
+
+  .page-controls {
+    background: rgba(255, 255, 255, 0.62);
+    border: 1px solid rgba(255, 255, 255, 0.6);
+    border-radius: 12px;
+    padding: 8px 10px;
+    width: fit-content;
+  }
+
+  .field-label {
+    font-weight: 600;
+    color: #254361;
+  }
+
+  #penColor,
+  #penSize {
+    margin-top: 4px;
+  }
 </style>
 @endpush
 @section('content')
 <div class="row">
  <!-- Left: PDF viewer -->
  <div class="col-md-8">
-  <h5><i class="fas fa-file-pdf text-danger me-2"></i>{{ $document->title }}</h5>
+  <h5 class="doc-title"><i class="fas fa-file-pdf text-danger me-2"></i>{{ $document->title }}</h5>
   <!-- Page controls -->
-  <div class="d-flex align-items-center mb-2 gap-2">
+  <div class="d-flex align-items-center mb-2 gap-2 page-controls">
    <button class="btn btn-sm btn-outline-secondary" onclick="prevPage()"><i class="fas fa-chevron-left"></i></button>
    <span>Page <span id="pageNum">1</span> of <span id="pageCount">?</span></span>
    <button class="btn btn-sm btn-outline-secondary" onclick="nextPage()"><i class="fas fa-chevron-right"></i></button>
    <button class="btn btn-sm btn-outline-danger ms-2" onclick="clearPageSigs()">
-    <i class="fas fa-eraser me-1"></i>Clear Page Sigs</button>
+    <i class="fas fa-eraser me-1"></i>Clear Page Signs</button>
   </div>
   <!-- PDF canvas -->
   <div id="pdfContainer">
@@ -36,14 +88,14 @@
    <canvas id="sigPad" width="280" height="120"></canvas>
    <div class="mt-2 d-flex gap-2">
     <button class="btn btn-sm btn-danger" onclick="clearSigPad()">Clear</button>
-    <button class="btn btn-sm" style="background:#6c3483;color:white" onclick="applySignature()">
+    <button class="btn btn-sm btn-primary" onclick="applySignature()">
      Apply to Page</button>
    </div>
   </div>
   <div class="toolbar mb-3">
    <h6>Color & Size</h6>
-   <label>Pen Color: <input type="color" id="penColor" value="#000000" style="width:50px"></label><br>
-   <label>Pen Size: <input type="range" id="penSize" min="1" max="10" value="2" style="width:100%"></label>
+   <label class="field-label">Pen Color: <input type="color" id="penColor" value="#000000" style="width:50px"></label><br>
+   <label class="field-label">Pen Size: <input type="range" id="penSize" min="1" max="10" value="2" style="width:100%"></label>
   </div>
   <div class="d-grid gap-2">
    <button class="btn btn-success" onclick="saveSignature()">
