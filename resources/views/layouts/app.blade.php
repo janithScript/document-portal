@@ -163,7 +163,7 @@
     <nav class="navbar navbar-dark glass-nav">
         <div class="container">
         <a class="navbar-brand" href="/"><i class="fas fa-file-pdf me-2"></i>Document Portal</a>
-        <a href="/documents/upload" class="btn btn-outline-light btn-sm">Upload PDF</a>
+
         </div>
     </nav>
     <div class="container main-shell">
