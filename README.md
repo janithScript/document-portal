@@ -42,7 +42,7 @@ php artisan serve
 ##  Usage
 
 ```bash
-Open: http://localhost:800
+Open: http://localhost:8000
 ```
 
 ---
