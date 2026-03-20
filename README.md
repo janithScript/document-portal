@@ -8,8 +8,8 @@ A Laravel 10-based web application to upload PDFs, add digital signatures, annot
 
 ```bash
 # 1. Clone repository
-git clone <your-repo-url>
-cd doc-portal
+git clone https://github.com/janithScript/document-portal.git
+cd document-portal
 
 # 2. Install dependencies
 composer install
