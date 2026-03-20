@@ -167,12 +167,89 @@ document.getElementById('penSize').addEventListener('input', e => padCtx.lineWid
 
 // ── Apply drawn signature onto the PDF overlay
 let placedSignatures = []; // local state for current session
-let draggingSigIndex = -1;
+let selectedSigIndex = -1;
+let activeSigIndex = -1;
+let activeAction = null; // drag | resize | rotate
 let dragOffsetX = 0;
 let dragOffsetY = 0;
 
+const HANDLE_RADIUS = 9;
+const ROTATE_HANDLE_OFFSET = 24;
+const MIN_SIG_SIZE = 30;
+
 function getPageSignatures(pageNum = currentPage) {
   return placedSignatures.filter(s => s.page_number === pageNum);
+}
+
+function getSigCenter(sig) {
+  return {
+    cx: sig._xPx + sig._wPx / 2,
+    cy: sig._yPx + sig._hPx / 2,
+  };
+}
+
+function getRotatedPoint(cx, cy, lx, ly, rotation) {
+  const cos = Math.cos(rotation);
+  const sin = Math.sin(rotation);
+  return {
+    x: cx + (lx * cos - ly * sin),
+    y: cy + (lx * sin + ly * cos),
+  };
+}
+
+function pointToSignatureLocal(x, y, sig) {
+  const { cx, cy } = getSigCenter(sig);
+  const dx = x - cx;
+  const dy = y - cy;
+  const cos = Math.cos(-sig._rotation);
+  const sin = Math.sin(-sig._rotation);
+  return {
+    x: dx * cos - dy * sin,
+    y: dx * sin + dy * cos,
+  };
+}
+
+function getSignatureHandles(sig) {
+  const { cx, cy } = getSigCenter(sig);
+  return {
+    rotate: getRotatedPoint(cx, cy, 0, -sig._hPx / 2 - ROTATE_HANDLE_OFFSET, sig._rotation),
+    resize: getRotatedPoint(cx, cy, sig._wPx / 2, sig._hPx / 2, sig._rotation),
+  };
+}
+
+function distanceSq(x1, y1, x2, y2) {
+  const dx = x1 - x2;
+  const dy = y1 - y2;
+  return dx * dx + dy * dy;
+}
+
+function findInteractionAt(x, y) {
+  const hitRadiusSq = HANDLE_RADIUS * HANDLE_RADIUS;
+
+  for (let i = placedSignatures.length - 1; i >= 0; i--) {
+    const sig = placedSignatures[i];
+    if (sig.page_number !== currentPage) {
+      continue;
+    }
+
+    const handles = getSignatureHandles(sig);
+    if (distanceSq(x, y, handles.rotate.x, handles.rotate.y) <= hitRadiusSq) {
+      return { index: i, action: 'rotate' };
+    }
+
+    if (distanceSq(x, y, handles.resize.x, handles.resize.y) <= hitRadiusSq) {
+      return { index: i, action: 'resize' };
+    }
+
+    const local = pointToSignatureLocal(x, y, sig);
+    const withinX = Math.abs(local.x) <= sig._wPx / 2;
+    const withinY = Math.abs(local.y) <= sig._hPx / 2;
+    if (withinX && withinY) {
+      return { index: i, action: 'drag' };
+    }
+  }
+
+  return { index: -1, action: null };
 }
 
 function redrawOverlay() {
@@ -180,20 +257,71 @@ function redrawOverlay() {
   const octx = overlay.getContext('2d');
   octx.clearRect(0, 0, overlay.width, overlay.height);
 
-  for (const sig of getPageSignatures()) {
+  for (let i = 0; i < placedSignatures.length; i++) {
+    const sig = placedSignatures[i];
+    if (sig.page_number !== currentPage) {
+      continue;
+    }
+
     if (sig._img && sig._img.complete) {
-      octx.drawImage(sig._img, sig._xPx, sig._yPx, sig._wPx, sig._hPx);
+      const { cx, cy } = getSigCenter(sig);
+      octx.save();
+      octx.translate(cx, cy);
+      octx.rotate(sig._rotation);
+      octx.drawImage(sig._img, -sig._wPx / 2, -sig._hPx / 2, sig._wPx, sig._hPx);
+
+      if (i === selectedSigIndex) {
+        octx.strokeStyle = '#158191';
+        octx.lineWidth = 1.5;
+        octx.setLineDash([6, 4]);
+        octx.strokeRect(-sig._wPx / 2, -sig._hPx / 2, sig._wPx, sig._hPx);
+        octx.setLineDash([]);
+
+        const localRotateY = -sig._hPx / 2 - ROTATE_HANDLE_OFFSET;
+        octx.beginPath();
+        octx.moveTo(0, -sig._hPx / 2);
+        octx.lineTo(0, localRotateY);
+        octx.strokeStyle = '#158191';
+        octx.stroke();
+
+        octx.fillStyle = '#ffffff';
+        octx.strokeStyle = '#158191';
+        octx.lineWidth = 2;
+
+        octx.beginPath();
+        octx.arc(sig._wPx / 2, sig._hPx / 2, HANDLE_RADIUS, 0, Math.PI * 2);
+        octx.fill();
+        octx.stroke();
+
+        octx.beginPath();
+        octx.arc(0, localRotateY, HANDLE_RADIUS, 0, Math.PI * 2);
+        octx.fill();
+        octx.stroke();
+      }
+
+      octx.restore();
     }
   }
 }
 
-function clampPosition(x, y, sig, overlay) {
-  const maxX = Math.max(0, overlay.width - sig._wPx);
-  const maxY = Math.max(0, overlay.height - sig._hPx);
-  return {
-    x: Math.min(Math.max(0, x), maxX),
-    y: Math.min(Math.max(0, y), maxY),
-  };
+function keepSignatureInBounds(sig, overlay) {
+  const halfW = sig._wPx / 2;
+  const halfH = sig._hPx / 2;
+  const cos = Math.cos(sig._rotation);
+  const sin = Math.sin(sig._rotation);
+  const halfBBoxW = Math.abs(halfW * cos) + Math.abs(halfH * sin);
+  const halfBBoxH = Math.abs(halfW * sin) + Math.abs(halfH * cos);
+
+  const center = getSigCenter(sig);
+  const minCx = halfBBoxW;
+  const maxCx = Math.max(halfBBoxW, overlay.width - halfBBoxW);
+  const minCy = halfBBoxH;
+  const maxCy = Math.max(halfBBoxH, overlay.height - halfBBoxH);
+
+  const clampedCx = Math.min(Math.max(center.cx, minCx), maxCx);
+  const clampedCy = Math.min(Math.max(center.cy, minCy), maxCy);
+  sig._xPx = clampedCx - halfW;
+  sig._yPx = clampedCy - halfH;
 }
 
 function updateSignaturePercent(sig, overlay) {
@@ -201,6 +329,7 @@ function updateSignaturePercent(sig, overlay) {
   sig.y_position = ((sig._yPx / overlay.height) * 100).toFixed(2);
   sig.width = ((sig._wPx / overlay.width) * 100).toFixed(2);
   sig.height = ((sig._hPx / overlay.height) * 100).toFixed(2);
+  sig.rotation = ((((sig._rotation * 180) / Math.PI) % 360) + 360).toFixed(2);
 }
 
 function getPointerOnOverlay(event, overlay) {
@@ -217,70 +346,105 @@ function getPointerOnOverlay(event, overlay) {
   };
 }
 
-function findTopSignatureAt(x, y) {
-  for (let i = placedSignatures.length - 1; i >= 0; i--) {
-    const sig = placedSignatures[i];
-    if (sig.page_number !== currentPage) {
-      continue;
-    }
+function updateOverlayCursor(event) {
+  const overlay = document.getElementById('sigCanvas');
+  const point = getPointerOnOverlay(event, overlay);
+  const hit = findInteractionAt(point.x, point.y);
 
-    const withinX = x >= sig._xPx && x <= sig._xPx + sig._wPx;
-    const withinY = y >= sig._yPx && y <= sig._yPx + sig._hPx;
-    if (withinX && withinY) {
-      return i;
-    }
+  if (hit.action === 'rotate') {
+    overlay.style.cursor = 'grab';
+  } else if (hit.action === 'resize') {
+    overlay.style.cursor = 'nwse-resize';
+  } else if (hit.action === 'drag') {
+    overlay.style.cursor = 'move';
+  } else {
+    overlay.style.cursor = 'crosshair';
   }
-  return -1;
 }
 
 function beginDrag(event) {
   const overlay = document.getElementById('sigCanvas');
   const point = getPointerOnOverlay(event, overlay);
-  const idx = findTopSignatureAt(point.x, point.y);
-  if (idx === -1) {
+  const hit = findInteractionAt(point.x, point.y);
+
+  if (hit.index === -1) {
+    selectedSigIndex = -1;
+    redrawOverlay();
+    updateOverlayCursor(event);
     return;
   }
 
-  const sig = placedSignatures[idx];
-  draggingSigIndex = idx;
-  dragOffsetX = point.x - sig._xPx;
-  dragOffsetY = point.y - sig._yPx;
-  overlay.style.cursor = 'grabbing';
+  activeSigIndex = hit.index;
+  activeAction = hit.action;
+  selectedSigIndex = hit.index;
+
+  const sig = placedSignatures[hit.index];
+  if (activeAction === 'drag') {
+    dragOffsetX = point.x - sig._xPx;
+    dragOffsetY = point.y - sig._yPx;
+    overlay.style.cursor = 'grabbing';
+  } else if (activeAction === 'resize') {
+    overlay.style.cursor = 'nwse-resize';
+  } else if (activeAction === 'rotate') {
+    overlay.style.cursor = 'grabbing';
+  }
+
+  redrawOverlay();
   event.preventDefault();
 }
 
 function moveDrag(event) {
-  if (draggingSigIndex === -1) {
+  if (activeSigIndex === -1 || !activeAction) {
+    if (event.type === 'mousemove') {
+      updateOverlayCursor(event);
+    }
     return;
   }
 
   const overlay = document.getElementById('sigCanvas');
   const point = getPointerOnOverlay(event, overlay);
-  const sig = placedSignatures[draggingSigIndex];
-  const pos = clampPosition(point.x - dragOffsetX, point.y - dragOffsetY, sig, overlay);
-  sig._xPx = pos.x;
-  sig._yPx = pos.y;
+  const sig = placedSignatures[activeSigIndex];
+
+  if (activeAction === 'drag') {
+    sig._xPx = point.x - dragOffsetX;
+    sig._yPx = point.y - dragOffsetY;
+  } else if (activeAction === 'resize') {
+    const center = getSigCenter(sig);
+    const local = pointToSignatureLocal(point.x, point.y, sig);
+    sig._wPx = Math.max(MIN_SIG_SIZE, Math.abs(local.x) * 2);
+    sig._hPx = Math.max(MIN_SIG_SIZE * 0.6, Math.abs(local.y) * 2);
+    sig._xPx = center.cx - sig._wPx / 2;
+    sig._yPx = center.cy - sig._hPx / 2;
+  } else if (activeAction === 'rotate') {
+    const center = getSigCenter(sig);
+    sig._rotation = Math.atan2(point.y - center.cy, point.x - center.cx) + Math.PI / 2;
+  }
+
+  keepSignatureInBounds(sig, overlay);
   updateSignaturePercent(sig, overlay);
   redrawOverlay();
   event.preventDefault();
 }
 
 function endDrag() {
-  if (draggingSigIndex === -1) {
+  if (activeSigIndex === -1) {
+    document.getElementById('sigCanvas').style.cursor = 'crosshair';
     return;
   }
-  draggingSigIndex = -1;
+  activeSigIndex = -1;
+  activeAction = null;
   document.getElementById('sigCanvas').style.cursor = 'crosshair';
 }
 
 function bindOverlayDragEvents() {
   const overlay = document.getElementById('sigCanvas');
   overlay.addEventListener('mousedown', beginDrag);
-  overlay.addEventListener('mousemove', moveDrag);
+  overlay.addEventListener('mousemove', updateOverlayCursor);
+  window.addEventListener('mousemove', moveDrag);
   window.addEventListener('mouseup', endDrag);
 
   overlay.addEventListener('touchstart', beginDrag, { passive: false });
-  overlay.addEventListener('touchmove', moveDrag, { passive: false });
+  window.addEventListener('touchmove', moveDrag, { passive: false });
   window.addEventListener('touchend', endDrag);
 }
 
@@ -299,9 +463,11 @@ function applySignature() {
     _yPx: y,
     _wPx: w,
     _hPx: h,
+    _rotation: 0,
     _img: img,
   };
 
+  keepSignatureInBounds(sig, overlay);
   updateSignaturePercent(sig, overlay);
 
   img.onload = () => {
@@ -311,7 +477,8 @@ function applySignature() {
 
   // Store for saving
   placedSignatures.push(sig);
-  showStatus('Signature placed! Drag it to any position, then click Save.', 'info');
+  selectedSigIndex = placedSignatures.length - 1;
+  showStatus('Signature placed! Drag, resize (corner), or rotate (top handle), then click Save.', 'info');
 }
 
 // ── Save signature to server (merge into PDF)

@@ -9,6 +9,7 @@ Route::get('/documents/upload', [DocumentController::class, 'create'])->name('do
 Route::post('/documents', [DocumentController::class, 'store'])->name('documents.store');
 Route::get('/documents/{document}/sign', [DocumentController::class, 'sign'])->name('documents.sign');
 Route::get('/documents/{document}/download', [DocumentController::class, 'download'])->name('documents.download');
+Route::delete('/documents/{document}', [DocumentController::class, 'destroy'])->name('documents.destroy');
 
 // Signature API
 Route::post('/documents/{document}/signature', [SignatureController::class, 'store'])->name('signature.store');

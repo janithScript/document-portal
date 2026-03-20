@@ -49,4 +49,19 @@ class DocumentController extends Controller
         $path = $document->signed_path ?? $document->original_path;
         return Storage::disk('public')->download($path, $document->title . '.pdf');
     }
+
+    // Delete document and its files
+    public function destroy(Document $document) {
+        if ($document->original_path && Storage::disk('public')->exists($document->original_path)) {
+            Storage::disk('public')->delete($document->original_path);
+        }
+
+        if ($document->signed_path && $document->signed_path !== $document->original_path && Storage::disk('public')->exists($document->signed_path)) {
+            Storage::disk('public')->delete($document->signed_path);
+        }
+
+        $document->delete();
+
+        return redirect()->route('documents.index')->with('success', 'Document deleted successfully.');
+    }
 }

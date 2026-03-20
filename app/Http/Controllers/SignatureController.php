@@ -6,6 +6,44 @@ use App\Models\DocumentSignature;
 use Illuminate\Support\Facades\Storage;
 use setasign\Fpdi\Fpdi;
 
+class RotatableFpdi extends Fpdi
+{
+    protected $angle = 0;
+
+    public function Rotate($angle, $x = -1, $y = -1)
+    {
+        if ($x === -1) {
+            $x = $this->x;
+        }
+        if ($y === -1) {
+            $y = $this->y;
+        }
+
+        if ($this->angle != 0) {
+            $this->_out('Q');
+        }
+
+        $this->angle = $angle;
+        if ($angle != 0) {
+            $angle *= M_PI / 180;
+            $c = cos($angle);
+            $s = sin($angle);
+            $cx = $x * $this->k;
+            $cy = ($this->h - $y) * $this->k;
+            $this->_out(sprintf('q %.5F %.5F %.5F %.5F %.5F %.5F cm 1 0 0 1 %.5F %.5F cm', $c, $s, -$s, $c, $cx, $cy, -$cx, -$cy));
+        }
+    }
+
+    public function _endpage()
+    {
+        if ($this->angle != 0) {
+            $this->angle = 0;
+            $this->_out('Q');
+        }
+        parent::_endpage();
+    }
+}
+
 class SignatureController extends Controller
 {
     // Save signature data + merge into PDF
@@ -17,6 +55,7 @@ class SignatureController extends Controller
             'y_position'     => 'required|numeric',
             'width'          => 'required|numeric',
             'height'         => 'required|numeric',
+            'rotation'       => 'nullable|numeric',
         ]);
 
         // Save signature record to DB
@@ -27,6 +66,7 @@ class SignatureController extends Controller
             'y_position'     => $request->y_position,
             'width'          => $request->width,
             'height'         => $request->height,
+            'rotation'       => $request->rotation ?? 0,
             'signature_data' => $request->signature_data,
         ]);
 
@@ -52,7 +92,7 @@ class SignatureController extends Controller
             mkdir(dirname($outputPath), 0755, true);
         }
 
-        $pdf = new Fpdi();
+        $pdf = new RotatableFpdi();
         $pageCount = $pdf->setSourceFile($sourcePath);
 
         for ($i = 1; $i <= $pageCount; $i++) {
@@ -74,8 +114,19 @@ class SignatureController extends Controller
                 $x = ($sig->x_position / 100) * $size['width'];
                 $y = ($sig->y_position / 100) * $size['height'];
                 $w = ($sig->width / 100) * $size['width'];
+                $h = ($sig->height / 100) * $size['height'];
+                $angle = (float) ($sig->rotation ?? 0);
 
-                $pdf->Image($tmpFile, $x, $y, $w, 0, 'PNG');
+                if (abs($angle) > 0.01) {
+                    $pdf->Rotate($angle, $x + ($w / 2), $y + ($h / 2));
+                }
+
+                $pdf->Image($tmpFile, $x, $y, $w, $h, 'PNG');
+
+                if (abs($angle) > 0.01) {
+                    $pdf->Rotate(0);
+                }
+
                 unlink($tmpFile);
             }
         }
